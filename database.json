@@ -1,0 +1,68 @@
+{
+  "users": [
+    {
+      "id": "admin-id",
+      "email": "admin@exemple.com",
+      "password": "adminpassword",
+      "name": "Directeur de FootStream",
+      "phone": "+261 34 00 000 00",
+      "isPremium": true
+    },
+    {
+      "id": "user_2u7l7bwxg",
+      "email": "client_test@example.com",
+      "password": "userpassword",
+      "name": "Utilisateur Test",
+      "phone": "+261 34 88 555 12",
+      "isPremium": false
+    }
+  ],
+  "matches": [
+    {
+      "id": "match-1",
+      "date": "2026-06-12T19:00:00Z",
+      "homeTeam": "Madagascar",
+      "homeFlag": "🇲🇬",
+      "awayTeam": "Maroc",
+      "awayFlag": "🇲🇦",
+      "competition": "Coupe du Monde 2026",
+      "status": "live",
+      "videoUrl": "https://test-streams.mux.dev/x36xhg/main.m3u8"
+    },
+    {
+      "id": "match-2",
+      "date": "2026-06-15T20:00:00Z",
+      "homeTeam": "France",
+      "homeFlag": "🇫🇷",
+      "awayTeam": "Brésil",
+      "awayFlag": "🇧🇷",
+      "competition": "Coupe du Monde 2026",
+      "status": "upcoming",
+      "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+    },
+    {
+      "id": "match-3",
+      "date": "2026-06-08T16:00:00Z",
+      "homeTeam": "Argentine",
+      "homeFlag": "🇦🇷",
+      "awayTeam": "Allemagne",
+      "awayFlag": "🇩🇪",
+      "competition": "Coupe du Monde 2026",
+      "status": "finished",
+      "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"
+    },
+    {
+      "id": "match-4",
+      "date": "2026-06-11T16:30:00Z",
+      "homeTeam": "Sénégal",
+      "homeFlag": "🇸🇳",
+      "awayTeam": "Côte d’Ivoire",
+      "awayFlag": "🇨🇮",
+      "competition": "CAN 2026",
+      "status": "live",
+      "videoUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
+    }
+  ],
+  "payments": [],
+  "customTeams": []
+}

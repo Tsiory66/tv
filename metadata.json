@@ -1,0 +1,6 @@
+{
+  "name": "FootStream Mada",
+  "description": "Plateforme MVP de streaming de matchs de football pour la Coupe du Monde à Madagascar avec intégration de paiement Papi.mg.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
