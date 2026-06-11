@@ -256,7 +256,8 @@ export default function App() {
           }
         }
       } else {
-        setErrorNotice("Impossible d'initier le paiement. Réessayez.");
+        const errJson = await res.json().catch(() => ({}));
+        setErrorNotice(errJson.error || "Impossible d'initier le paiement. Réessayez.");
       }
     } catch {
       setErrorNotice("Erreur de connexion au module de paiement.");

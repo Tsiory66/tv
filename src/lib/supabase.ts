@@ -1,8 +1,9 @@
+/// <reference types="vite/client" />
 import { createClient } from "@supabase/supabase-js";
 import { Match, User, Payment } from "../types";
 
-const supabaseUrl = (import.meta as any).env.VITE_SUPABASE_URL || "";
-const supabaseAnonKey = (import.meta as any).env.VITE_SUPABASE_ANON_KEY || "";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
 // Initialize Supabase Client if keys are present
 export const supabase = (supabaseUrl && supabaseAnonKey && !supabaseUrl.includes("MY_SUPABASE"))
@@ -141,6 +142,36 @@ export function saveLocalDB(state: DBState) {
   localStorage.setItem("footstream_db", JSON.stringify(state));
 }
 
+// Helper functions to map from/to Supabase snake_case matches table
+export function mapMatchFromDb(dbMatch: any): Match {
+  if (!dbMatch) return dbMatch;
+  return {
+    id: dbMatch.id,
+    date: dbMatch.date,
+    homeTeam: dbMatch.home_team || dbMatch.homeTeam || "",
+    awayTeam: dbMatch.away_team || dbMatch.awayTeam || "",
+    homeFlag: dbMatch.home_flag || dbMatch.homeFlag || "",
+    awayFlag: dbMatch.away_flag || dbMatch.awayFlag || "",
+    competition: dbMatch.competition || "",
+    status: dbMatch.status || "upcoming",
+    videoUrl: dbMatch.video_url || dbMatch.videoUrl || ""
+  };
+}
+
+export function mapMatchToDb(match: Partial<Match>): any {
+  const dbMatch: any = {};
+  if (match.id !== undefined) dbMatch.id = match.id;
+  if (match.date !== undefined) dbMatch.date = match.date;
+  if (match.homeTeam !== undefined) dbMatch.home_team = match.homeTeam;
+  if (match.awayTeam !== undefined) dbMatch.away_team = match.awayTeam;
+  if (match.homeFlag !== undefined) dbMatch.home_flag = match.homeFlag;
+  if (match.awayFlag !== undefined) dbMatch.away_flag = match.awayFlag;
+  if (match.competition !== undefined) dbMatch.competition = match.competition;
+  if (match.status !== undefined) dbMatch.status = match.status;
+  if (match.videoUrl !== undefined) dbMatch.video_url = match.videoUrl;
+  return dbMatch;
+}
+
 // --- HYBRID DATABASE ADAPTERS ---
 export async function fetchTeamsAdapter(): Promise<Array<{ name: string; flag: string }>> {
   if (supabase) {
@@ -162,7 +193,7 @@ export async function insertTeamAdapter(name: string, flag: string): Promise<boo
     const { error } = await supabase.from("custom_teams").insert([{ name, flag }]);
     if (error) {
       console.error("Error adding team to Supabase:", error);
-      return false;
+      throw new Error(`Impossible d'ajouter l'équipe : ${error.message} (Code ${error.code}). Vérifiez que la table 'custom_teams' existe.`);
     }
     return true;
   } else {
@@ -181,9 +212,9 @@ export async function fetchMatchesAdapter(): Promise<Match[]> {
     const { data, error } = await supabase.from("matches").select("*").order("date", { ascending: true });
     if (error) {
       console.error("Error loading matches from Supabase:", error);
-      return [];
+      throw new Error(`Impossible de récupérer les matchs : ${error.message} (Code ${error.code}). Allez dans le panneau de diagnostics pour exécuter la migration SQL.`);
     }
-    return data || [];
+    return (data || []).map(mapMatchFromDb);
   } else {
     const db = getLocalDB();
     return db.matches;
@@ -192,12 +223,13 @@ export async function fetchMatchesAdapter(): Promise<Match[]> {
 
 export async function insertMatchAdapter(match: Omit<Match, "id">): Promise<Match | null> {
   if (supabase) {
-    const { data, error } = await supabase.from("matches").insert([match]).select().single();
+    const dbMatch = mapMatchToDb(match);
+    const { data, error } = await supabase.from("matches").insert([dbMatch]).select().single();
     if (error) {
       console.error("Error adding match to Supabase:", error);
-      return null;
+      throw new Error(`Impossible de créer le match : ${error.message} (Code ${error.code}). Vérifiez les contraintes de table ou les règles de sécurité RLS.`);
     }
-    return data;
+    return mapMatchFromDb(data);
   } else {
     const db = getLocalDB();
     const newMatch: Match = {
@@ -212,8 +244,13 @@ export async function insertMatchAdapter(match: Omit<Match, "id">): Promise<Matc
 
 export async function updateMatchAdapter(id: string, updates: Partial<Match>): Promise<boolean> {
   if (supabase) {
-    const { error } = await supabase.from("matches").update(updates).eq("id", id);
-    return !error;
+    const dbUpdates = mapMatchToDb(updates);
+    const { error } = await supabase.from("matches").update(dbUpdates).eq("id", id);
+    if (error) {
+      console.error("Error updating match in Supabase:", error);
+      throw new Error(`Impossible de mettre à jour le match : ${error.message} (Code ${error.code}). Assurez-vous d'avoir créé votre profil administrateur.`);
+    }
+    return true;
   } else {
     const db = getLocalDB();
     const i = db.matches.findIndex(m => m.id === id);
@@ -227,7 +264,11 @@ export async function updateMatchAdapter(id: string, updates: Partial<Match>): P
 export async function deleteMatchAdapter(id: string): Promise<boolean> {
   if (supabase) {
     const { error } = await supabase.from("matches").delete().eq("id", id);
-    return !error;
+    if (error) {
+      console.error("Error deleting match from Supabase:", error);
+      throw new Error(`Séquence de suppression avortée : ${error.message} (Code ${error.code}).`);
+    }
+    return true;
   } else {
     const db = getLocalDB();
     db.matches = db.matches.filter(m => m.id !== id);

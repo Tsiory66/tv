@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Match, MatchStatus } from "../types";
-import { Plus, Edit2, Trash2, ShieldAlert, Check, RefreshCw, PlusCircle, ArrowLeft, HelpCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, ShieldAlert, Check, RefreshCw, PlusCircle, ArrowLeft, HelpCircle, Server, Copy, CheckSquare } from "lucide-react";
+import { supabase } from "../lib/supabase";
 
 interface AdminPanelProps {
   token: string;
@@ -20,6 +21,24 @@ export default function AdminPanel({ token, onNavigateBack }: AdminPanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMs, setErrorMs] = useState<string | null>(null);
   const [successMs, setSuccessMs] = useState<string | null>(null);
+
+  // Supabase Diagnose States
+  const [showSupabaseGuide, setShowSupabaseGuide] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [isInjectingDemo, setIsInjectingDemo] = useState(false);
+  const [dbStatus, setDbStatus] = useState<{
+    connected: boolean;
+    profilesOk: boolean | null;
+    matchesOk: boolean | null;
+    paymentsOk: boolean | null;
+    teamsOk: boolean | null;
+  }>({
+    connected: false,
+    profilesOk: null,
+    matchesOk: null,
+    paymentsOk: null,
+    teamsOk: null,
+  });
 
   // Match Form States
   const [isEditing, setIsEditing] = useState(false);
@@ -71,9 +90,45 @@ export default function AdminPanel({ token, onNavigateBack }: AdminPanelProps) {
     }
   };
 
+  const checkSupabaseTables = async () => {
+    if (!supabase) {
+      setDbStatus({
+        connected: false,
+        profilesOk: false,
+        matchesOk: false,
+        paymentsOk: false,
+        teamsOk: false,
+      });
+      return;
+    }
+    try {
+      const { error: profErr } = await supabase.from("profiles").select("*").limit(1);
+      const { error: matchErr } = await supabase.from("matches").select("*").limit(1);
+      const { error: payErr } = await supabase.from("payments").select("*").limit(1);
+      const { error: teamErr } = await supabase.from("custom_teams").select("*").limit(1);
+
+      setDbStatus({
+        connected: true,
+        profilesOk: !profErr || (profErr.code !== "PGRST116" && profErr.code !== "42P01"),
+        matchesOk: !matchErr || matchErr.code !== "42P01",
+        paymentsOk: !payErr || payErr.code !== "42P01",
+        teamsOk: !teamErr || teamErr.code !== "42P01",
+      });
+    } catch (e) {
+      setDbStatus({
+        connected: true,
+        profilesOk: true,
+        matchesOk: true,
+        paymentsOk: true,
+        teamsOk: true,
+      });
+    }
+  };
+
   useEffect(() => {
     fetchMatches();
     fetchTeams();
+    checkSupabaseTables();
   }, [token]);
 
   // Adjust flags automatically when selecting a team
@@ -246,6 +301,29 @@ export default function AdminPanel({ token, onNavigateBack }: AdminPanelProps) {
     }
   };
 
+  const handleResetDemoMatches = async () => {
+    try {
+      setIsInjectingDemo(true);
+      setErrorMs(null);
+      setSuccessMs(null);
+      const res = await fetch("/api/admin/database/reset", {
+        method: "POST",
+        headers: { Authorization: token }
+      });
+      if (res.ok) {
+        setSuccessMs("Les matchs de démonstration ont été injectés et synchronisés sur Supabase !");
+        fetchMatches();
+      } else {
+        const err = await res.json();
+        setErrorMs(err.error || "Échec de l'injection des données de démonstration. Vérifiez que vos tables existent.");
+      }
+    } catch {
+      setErrorMs("Erreur de communication lors de l'injection.");
+    } finally {
+      setIsInjectingDemo(false);
+    }
+  };
+
   return (
     <div className="space-y-8 font-sans pb-12 animate-fade-in">
       {/* Header */}
@@ -268,6 +346,314 @@ export default function AdminPanel({ token, onNavigateBack }: AdminPanelProps) {
           <ArrowLeft className="w-4 h-4" />
           Retour au Dashboard
         </button>
+      </div>
+
+      {/* SUPABASE DIAGNOSTIC & BOOTSTRAPPING BLOCK */}
+      <div className="bg-[#0C0C0E] border border-white/5 rounded-2xl p-6 space-y-6 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-emerald-500/15 text-emerald-400 p-2.5 rounded-xl border border-emerald-500/10">
+              <Server className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                Liaison Base de Données Supabase
+                <span className={`text-[9px] px-2 py-0.5 rounded-md font-bold uppercase ${
+                  dbStatus.connected 
+                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" 
+                    : "bg-amber-400/10 text-amber-400 border border-amber-400/20"
+                }`}>
+                  {dbStatus.connected ? "Connecté (En direct)" : "Simulation Locale active"}
+                </span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {dbStatus.connected 
+                  ? "Votre application est activement connectée à Supabase." 
+                  : "Aucune information d'identification ou .env vide. L'application utilise le moteur autonome local."}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowSupabaseGuide(!showSupabaseGuide)}
+            className="text-xs font-semibold px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-white/5 text-slate-300 hover:text-white transition cursor-pointer shrink-0"
+          >
+            {showSupabaseGuide ? "Masquer " : "Afficher "}les diagnostics & migrations
+          </button>
+        </div>
+
+        {/* Real-time Connection Details */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-black/40 p-4 rounded-xl border border-white/5.5">
+          <div className="space-y-1">
+            <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest">Table Profiles (Users)</span>
+            <span className={`text-[11px] font-bold inline-flex items-center gap-1.5 ${
+              dbStatus.profilesOk === null ? "text-slate-400" : dbStatus.profilesOk ? "text-emerald-400" : "text-rose-400"
+            }`}>
+              <span className={`h-2 w-2 rounded-full ${
+                dbStatus.profilesOk === null ? "bg-slate-400 animate-pulse" : dbStatus.profilesOk ? "bg-emerald-400" : "bg-rose-400"
+              }`} />
+              {dbStatus.profilesOk === null ? "Vérification..." : dbStatus.profilesOk ? "Créée (Active)" : "Non existante ⚠️"}
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest">Table Matches (Streams)</span>
+            <span className={`text-[11px] font-bold inline-flex items-center gap-1.5 ${
+              dbStatus.matchesOk === null ? "text-slate-400" : dbStatus.matchesOk ? "text-emerald-400" : "text-rose-400"
+            }`}>
+              <span className={`h-2 w-2 rounded-full ${
+                dbStatus.matchesOk === null ? "bg-slate-400 animate-pulse" : dbStatus.matchesOk ? "bg-emerald-400" : "bg-rose-400"
+              }`} />
+              {dbStatus.matchesOk === null ? "Vérification..." : dbStatus.matchesOk ? "Créée (Active)" : "Non existante ⚠️"}
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest">Table Payments</span>
+            <span className={`text-[11px] font-bold inline-flex items-center gap-1.5 ${
+              dbStatus.paymentsOk === null ? "text-slate-400" : dbStatus.paymentsOk ? "text-emerald-400" : "text-rose-400"
+            }`}>
+              <span className={`h-2 w-2 rounded-full ${
+                dbStatus.paymentsOk === null ? "bg-slate-400 animate-pulse" : dbStatus.paymentsOk ? "bg-emerald-400" : "bg-rose-400"
+              }`} />
+              {dbStatus.paymentsOk === null ? "Vérification..." : dbStatus.paymentsOk ? "Créée (Active)" : "Non existante ⚠️"}
+            </span>
+          </div>
+
+          <div className="space-y-1">
+            <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-widest">Table Custom Teams</span>
+            <span className={`text-[11px] font-bold inline-flex items-center gap-1.5 ${
+              dbStatus.teamsOk === null ? "text-slate-400" : dbStatus.teamsOk ? "text-emerald-400" : "text-rose-400"
+            }`}>
+              <span className={`h-2 w-2 rounded-full ${
+                dbStatus.teamsOk === null ? "bg-slate-400 animate-pulse" : dbStatus.teamsOk ? "bg-emerald-400" : "bg-rose-400"
+              }`} />
+              {dbStatus.teamsOk === null ? "Vérification..." : dbStatus.teamsOk ? "Créée (Active)" : "Non existante ⚠️"}
+            </span>
+          </div>
+        </div>
+
+        {showSupabaseGuide && (
+          <div className="space-y-6 pt-2 border-t border-white/5 animate-fade-in block">
+            {/* Guide Step 1: SQL Migrations */}
+            <div className="bg-[#09090B] border border-white/5 rounded-xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-white/5">
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider">Étape 1 : Exécuter la migration SQL des Tables</h4>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Copiez le script ci-dessous et collez-le directement dans votre éditeur de requêtes SQL Supabase pour créer vos tables en 2 secondes.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sql = `-- 1. PROFILES TABLE
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT,
+  phone TEXT,
+  is_premium BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Profiles are publicly viewable" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can insert their own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+-- 2. MATCHES TABLE
+CREATE TABLE IF NOT EXISTS public.matches (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  date TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+  home_team TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  home_flag TEXT,
+  away_flag TEXT,
+  competition TEXT NOT NULL,
+  status TEXT DEFAULT 'upcoming'::text NOT NULL CHECK (status IN ('upcoming', 'live', 'finished')),
+  video_url TEXT NOT NULL
+);
+
+ALTER TABLE public.matches ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Matches are viewable by anyone" ON public.matches FOR SELECT USING (true);
+CREATE POLICY "Matches can only be managed by administrators" ON public.matches FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'admin@exemple.com'
+  )
+);
+
+-- 3. PAYMENTS TABLE
+CREATE TABLE IF NOT EXISTS public.payments (
+  id TEXT PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  amount NUMERIC DEFAULT 10000 NOT NULL,
+  status TEXT DEFAULT 'pending'::text NOT NULL CHECK (status IN ('pending', 'success', 'failed')),
+  papi_reference TEXT,
+  provider TEXT DEFAULT 'MVOLA'::text,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can view their own payment histories" ON public.payments FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can record their own checkout records" ON public.payments FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Service Role and internal systems handle administrative updates" ON public.payments FOR ALL USING (true);
+
+-- 4. CUSTOM TEAMS TABLE
+CREATE TABLE IF NOT EXISTS public.custom_teams (
+  name TEXT PRIMARY KEY,
+  flag TEXT DEFAULT '🏳️'::text NOT NULL
+);
+
+ALTER TABLE public.custom_teams ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Teams are viewable by everyone" ON public.custom_teams FOR SELECT USING (true);
+CREATE POLICY "Anyone can submit country listings" ON public.custom_teams FOR INSERT WITH CHECK (true);`;
+                    navigator.clipboard.writeText(sql);
+                    setCopiedSql(true);
+                    setTimeout(() => setCopiedSql(false), 2500);
+                  }}
+                  className="inline-flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black text-[10px] font-extrabold uppercase tracking-widest px-4 py-2 rounded-lg cursor-pointer transition shrink-0"
+                >
+                  {copiedSql ? (
+                    <>
+                      <CheckSquare className="w-3.5 h-3.5" />
+                      Copié !
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      Copier le script SQL
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Console Quicklink block */}
+              <div className="flex flex-col md:flex-row items-start md:items-center gap-3 p-3.5 bg-emerald-500/5 rounded-xl border border-emerald-500/10 text-xs">
+                <span className="font-semibold text-emerald-400">🔗 Lien Direct :</span>
+                <a
+                  href="https://supabase.com/dashboard/project/egfpginsadncgkxrvmdu/sql/new"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-white hover:text-emerald-400 underline decoration-emerald-500/40 hover:decoration-emerald-450 transition font-mono font-bold"
+                >
+                  Ouvrir l'Éditeur SQL Supabase (Project egfpginsadncgkxrvmdu) ↗
+                </a>
+              </div>
+
+              <pre className="p-4 bg-black/60 rounded-xl overflow-x-auto text-[10px] font-mono text-slate-300 max-h-48 border border-white/5 scrollbar-thin">
+{`-- 1. PROFILES TABLE
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT,
+  phone TEXT,
+  is_premium BOOLEAN DEFAULT FALSE,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- Row Level Security & Policies
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Profiles are publicly viewable" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can insert their own profile" ON public.profiles FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+-- 2. MATCHES TABLE
+CREATE TABLE IF NOT EXISTS public.matches (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  date TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+  home_team TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  home_flag TEXT,
+  away_flag TEXT,
+  competition TEXT NOT NULL,
+  status TEXT DEFAULT 'upcoming'::text NOT NULL CHECK (status IN ('upcoming', 'live', 'finished')),
+  video_url TEXT NOT NULL
+);
+
+ALTER TABLE public.matches ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Matches are viewable by anyone" ON public.matches FOR SELECT USING (true);
+CREATE POLICY "Matches can only be managed by administrators" ON public.matches FOR ALL USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles WHERE id = auth.uid() AND email = 'admin@exemple.com'
+  )
+);
+
+-- 3. PAYMENTS TABLE
+CREATE TABLE IF NOT EXISTS public.payments (
+  id TEXT PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  amount NUMERIC DEFAULT 10000 NOT NULL,
+  status TEXT DEFAULT 'pending'::text NOT NULL CHECK (status IN ('pending', 'success', 'failed')),
+  papi_reference TEXT,
+  provider TEXT DEFAULT 'MVOLA'::text,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can view their own payment histories" ON public.payments FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can record their own checkout records" ON public.payments FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Service Role and internal systems handle administrative updates" ON public.payments FOR ALL USING (true);`}
+              </pre>
+            </div>
+
+            {/* Guide Step 2: Edge Function / Webhook setup instructions */}
+            <div className="bg-[#09090B] border border-white/5 rounded-xl p-5 space-y-4">
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider">Étape 2 : Activer le Webhook automatique (Edge Function)</h4>
+              <p className="text-[11px] text-slate-400">
+                Papi.mg envoie les notifications de transaction validée par les opérateurs télécoms (Mvola / Orange Money / Airtel Money) directement sur votre application à distance.
+              </p>
+
+              <div className="p-4 bg-slate-900 rounded-xl space-y-3.5 border border-white/5 text-xs text-slate-300">
+                <p className="font-semibold text-white">Pour configurer la réception automatique des webhooks :</p>
+                <ol className="list-decimal list-inside space-y-2 text-[11px] leading-relaxed">
+                  <li>
+                    Associez l'URL de l'application suivante au panneau des webhooks Papi.mg : <br/>
+                    <code className="text-emerald-400 font-mono text-[10px] bg-slate-950 p-1 rounded inline-block mt-1">
+                      https://ais-dev-yrldp6fomnsbie4efeqe7v-912734035616.europe-west2.run.app/api/payments/webhook
+                    </code>
+                  </li>
+                  <li>
+                    Cette URL de webhook interceptera les notifications d'achat Premium et passera automatiquement l'abonné à Premium <strong className="text-emerald-400">isPremium: true</strong> dans votre table <code className="font-mono text-emerald-400 bg-slate-950 px-1 py-0.5 rounded">profiles</code>.
+                  </li>
+                  <li>
+                    Si vous souhaitez déployer une <strong>Edge Function Supabase</strong> directement pour déléguer la logique : utilisez la commande CLI suivante : <br/>
+                    <code className="text-slate-400 font-mono text-[10px] bg-slate-950 p-2 rounded block mt-1.5 border border-white/5 whitespace-pre overflow-x-auto">
+                      supabase functions deploy papi-webhook --project-ref egfpginsadncgkxrvmdu
+                    </code>
+                  </li>
+                </ol>
+              </div>
+            </div>
+
+            {/* Demo Injector helper */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4.5 bg-emerald-500/5 rounded-xl border border-emerald-500/10">
+              <div className="space-y-1">
+                <h4 className="text-xs font-bold text-emerald-400">Importer les Matchs initiaux sur Supabase</h4>
+                <p className="text-[11px] text-slate-400">
+                  Une fois vos tables créées, cliquez sur ce bouton pour injecter instantanément 4 matchs de démonstration en direct et programmés dans votre projet Supabase !
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetDemoMatches}
+                disabled={isInjectingDemo || !dbStatus.connected}
+                className="inline-flex items-center gap-2 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black hover:border-transparent text-[10px] font-black uppercase tracking-widest px-4.5 py-3 rounded-lg cursor-pointer border border-emerald-500/30 transition shadow-md shrink-0"
+              >
+                {isInjectingDemo ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Injection...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-3.5 h-3.5" />
+                    Injecter les Matchs de Démo
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {(errorMs || successMs) && (

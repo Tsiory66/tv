@@ -10,7 +10,9 @@ import {
   deleteMatchAdapter,
   INITIAL_MATCHES,
   DEFAULT_USERS,
-  DEFAULT_TEAMS
+  DEFAULT_TEAMS,
+  mapMatchFromDb,
+  mapMatchToDb
 } from "./supabase";
 import { Payment } from "../types";
 
@@ -61,8 +63,12 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
   // 1. GET /api/teams
   // --------------------------------------------------------
   if (url === "/api/teams" && method === "GET") {
-    const teams = await fetchTeamsAdapter();
-    return makeResponse(200, teams);
+    try {
+      const teams = await fetchTeamsAdapter();
+      return makeResponse(200, teams);
+    } catch (e: any) {
+      return makeResponse(500, { error: e.message || "Impossible de charger les équipes." });
+    }
   }
 
   // --------------------------------------------------------
@@ -71,35 +77,47 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
   if (url === "/api/teams" && method === "POST") {
     const { name, flag } = body || {};
     if (!name) return makeResponse(400, { error: "Nom d'équipe manquant." });
-    const success = await insertTeamAdapter(name, flag || "🏳️");
-    if (!success) return makeResponse(400, { error: "Cette équipe existe déjà." });
-    return makeResponse(200, { success: true, team: { name, flag } });
+    try {
+      const success = await insertTeamAdapter(name, flag || "🏳️");
+      if (!success) return makeResponse(400, { error: "Cette équipe existe déjà." });
+      return makeResponse(200, { success: true, team: { name, flag } });
+    } catch (e: any) {
+      return makeResponse(500, { error: e.message || "Erreur de création d'équipe." });
+    }
   }
 
   // --------------------------------------------------------
   // 3. GET /api/matches
   // --------------------------------------------------------
   if (url === "/api/matches" && method === "GET") {
-    const matches = await fetchMatchesAdapter();
-    return makeResponse(200, matches || []);
+    try {
+      const matches = await fetchMatchesAdapter();
+      return makeResponse(200, matches || []);
+    } catch (e: any) {
+      return makeResponse(500, { error: e.message || "Erreur de lecture de la liste des matchs." });
+    }
   }
 
   // --------------------------------------------------------
   // 4. POST /api/matches
   // --------------------------------------------------------
   if (url === "/api/matches" && method === "POST") {
-    const freshMatch = await insertMatchAdapter({
-      date: body?.date || new Date().toISOString(),
-      homeTeam: body?.homeTeam || "",
-      homeFlag: body?.homeFlag || "🏳️",
-      awayTeam: body?.awayTeam || "",
-      awayFlag: body?.awayFlag || "🏳️",
-      competition: body?.competition || "",
-      status: body?.status || "upcoming",
-      videoUrl: body?.videoUrl || ""
-    });
-    if (!freshMatch) return makeResponse(500, { error: "Erreur lors de la création du match." });
-    return makeResponse(200, { success: true, match: freshMatch });
+    try {
+      const freshMatch = await insertMatchAdapter({
+        date: body?.date || new Date().toISOString(),
+        homeTeam: body?.homeTeam || "",
+        homeFlag: body?.homeFlag || "🏳️",
+        awayTeam: body?.awayTeam || "",
+        awayFlag: body?.awayFlag || "🏳️",
+        competition: body?.competition || "",
+        status: body?.status || "upcoming",
+        videoUrl: body?.videoUrl || ""
+      });
+      if (!freshMatch) return makeResponse(500, { error: "Erreur lors de la création du match." });
+      return makeResponse(200, { success: true, match: freshMatch });
+    } catch (e: any) {
+      return makeResponse(500, { error: e.message || "Exception de création du match." });
+    }
   }
 
   // --------------------------------------------------------
@@ -108,9 +126,13 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
   if (url.startsWith("/api/matches/") && method === "PUT") {
     const parts = url.split("/api/matches/");
     const matchId = parts[1];
-    const success = await updateMatchAdapter(matchId, body);
-    if (!success) return makeResponse(404, { error: "Match non trouvé." });
-    return makeResponse(200, { success: true });
+    try {
+      const success = await updateMatchAdapter(matchId, body);
+      if (!success) return makeResponse(404, { error: "Match non trouvé." });
+      return makeResponse(200, { success: true });
+    } catch (e: any) {
+      return makeResponse(500, { error: e.message || "Erreur lors de la modification du match." });
+    }
   }
 
   // --------------------------------------------------------
@@ -119,9 +141,13 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
   if (url.startsWith("/api/matches/") && method === "DELETE") {
     const parts = url.split("/api/matches/");
     const matchId = parts[1];
-    const success = await deleteMatchAdapter(matchId);
-    if (!success) return makeResponse(404, { error: "Match non trouvé." });
-    return makeResponse(200, { success: true });
+    try {
+      const success = await deleteMatchAdapter(matchId);
+      if (!success) return makeResponse(404, { error: "Match non trouvé." });
+      return makeResponse(200, { success: true });
+    } catch (e: any) {
+      return makeResponse(500, { error: e.message || "Erreur lors de la suppression du match." });
+    }
   }
 
   // --------------------------------------------------------
@@ -130,15 +156,19 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
   if (url.startsWith("/api/matches/") && method === "GET") {
     const parts = url.split("/api/matches/");
     const matchId = parts[1];
-    if (supabase) {
-      const { data, error } = await supabase.from("matches").select("*").eq("id", matchId).single();
-      if (error || !data) return makeResponse(404, { error: "Match non trouvé." });
-      return makeResponse(200, data);
-    } else {
-      const db = getLocalDB();
-      const m = db.matches.find(item => item.id === matchId);
-      if (!m) return makeResponse(404, { error: "Match non trouvé." });
-      return makeResponse(200, m);
+    try {
+      if (supabase) {
+        const { data, error } = await supabase.from("matches").select("*").eq("id", matchId).single();
+        if (error || !data) return makeResponse(404, { error: "Match non trouvé." });
+        return makeResponse(200, mapMatchFromDb(data));
+      } else {
+        const db = getLocalDB();
+        const m = db.matches.find(item => item.id === matchId);
+        if (!m) return makeResponse(404, { error: "Match non trouvé." });
+        return makeResponse(200, m);
+      }
+    } catch (e: any) {
+      return makeResponse(500, { error: e.message || "Erreur lors du chargement du match." });
     }
   }
 
@@ -162,7 +192,13 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
         });
         if (error) {
           console.error("Supabase signUp error:", error);
-          return makeResponse(400, { error: error.message });
+          let errMsg = error.message;
+          if (errMsg.toLowerCase().includes("rate limit") || errMsg.toLowerCase().includes("rate_limit")) {
+            errMsg = "Limite d'inscription par e-mail atteinte (Supabase Security Rate Limit).\n\nPour débloquer cela dans votre projet Supabase :\n1. Allez sur votre Tableau de bord Supabase -> Authentication -> Providers -> Email et désactivez 'Confirm Email' (OFF).\n2. Ou bien augmentez la limite d'adresses d'envoi de mails dans Authentication -> Rate Limits.\n\nEn attendant, vous pouvez utiliser le bouton 'Connexion Directe' ou vous connecter avec 'client_test@example.com' (mot de passe: 'userpassword') pour tester l'application sans interruption !";
+          } else if (errMsg.toLowerCase().includes("already registered") || errMsg.toLowerCase().includes("already_registered") || errMsg.toLowerCase().includes("already exists") || errMsg.toLowerCase().includes("existe déjà")) {
+            errMsg = "Cet adresse e-mail est déjà inscrite ! Veuillez vous connecter avec le formulaire de Connexion à la place. Vous pouvez également utiliser le bouton de 'Connexion Directe / Démo' ou renseigner un autre e-mail pour créer un nouveau compte.";
+          }
+          return makeResponse(400, { error: errMsg });
         }
         if (!data.user) {
           return makeResponse(400, { error: "Inscription échouée." });
@@ -239,7 +275,21 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
         }
 
         // Get profiles info
-        const { data: profile } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
+        let { data: profile } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
+        if (!profile) {
+          const isPremiumUser = email.toLowerCase() === "admin@exemple.com";
+          const { error: insertErr } = await supabase.from("profiles").insert([{
+            id: data.user.id,
+            email: email.toLowerCase(),
+            name: data.user.user_metadata?.name || "Client FootStream",
+            phone: data.user.user_metadata?.phone || "",
+            is_premium: isPremiumUser
+          }]);
+          if (!insertErr) {
+            const { data: repr } = await supabase.from("profiles").select("*").eq("id", data.user.id).single();
+            profile = repr;
+          }
+        }
         const finalName = profile?.name || data.user.user_metadata?.name || "Client FootStream";
         const finalPhone = profile?.phone || data.user.user_metadata?.phone || "";
         const finalIsPremium = profile?.is_premium || email.toLowerCase() === "admin@exemple.com";
@@ -284,7 +334,7 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
     if (supabase) {
       try {
         // Since token is the user ID in client sessions, fetch user profile directly
-        const { data: profile, error } = await supabase
+        let { data: profile, error } = await supabase
           .from("profiles")
           .select("*")
           .eq("id", rawToken)
@@ -295,23 +345,34 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
           const { data: { user } } = await supabase.auth.getUser();
           if (user) {
             const isPremiumUser = user.email?.toLowerCase() === "admin@exemple.com";
-            return makeResponse(200, {
+            const { error: insertErr } = await supabase.from("profiles").upsert({
               id: user.id,
-              email: user.email!,
+              email: user.email?.toLowerCase() || "",
               name: user.user_metadata?.name || "Client FootStream",
               phone: user.user_metadata?.phone || "",
-              isPremium: isPremiumUser
+              is_premium: isPremiumUser
             });
+            if (!insertErr) {
+              const { data: repr } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+              profile = repr;
+            }
           }
-          return makeResponse(401, { error: "Session invalide." });
         }
 
+        const finalProfile = profile || {
+          id: rawToken,
+          email: "anon@stream.mg",
+          name: "Client FootStream",
+          phone: "",
+          is_premium: false
+        };
+
         return makeResponse(200, {
-          id: profile.id,
-          email: profile.email,
-          name: profile.name,
-          phone: profile.phone,
-          isPremium: profile.is_premium
+          id: finalProfile.id,
+          email: finalProfile.email,
+          name: finalProfile.name,
+          phone: finalProfile.phone,
+          isPremium: finalProfile.is_premium || finalProfile.email?.toLowerCase() === "admin@exemple.com"
         });
       } catch (err) {
         return makeResponse(401, { error: "Erreur de connexion de session." });
@@ -337,7 +398,8 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
     if (!rawToken) return makeResponse(401, { error: "Authentification requise." });
     const provider = body?.provider || "MVOLA";
     const paymentId = "pay_" + Math.random().toString(36).substr(2, 9);
-    
+    const appOrigin = body?.origin || window.location.origin;
+
     if (supabase) {
       // 1. Fetch user to confirm
       const { data: profile } = await supabase.from("profiles").select("*").eq("id", rawToken).single();
@@ -360,22 +422,106 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
         return makeResponse(500, { error: "Erreur lors de la création de la transaction." });
       }
 
-      // Check if user has deployed the Supabase Edge Function checkout URL
-      // If VITE_SUPABASE_URL and Papi Key are configured, they can make real queries
-      // We return the local simulate link but log standard information.
-      // This allows both real connection and instant preview.
-      const appOrigin = body?.origin || window.location.origin;
-      const checkoutUrl = `${appOrigin}/payment/simulate/${paymentId}`;
+      // 3. Request actual external redirect URL from secure Supabase Edge Function to bypass browser CORS
+      let checkoutUrl = "";
+      try {
+        const edgeWebhookUrl = "https://egfpginsadncgkxrvmdu.supabase.co/functions/v1/papi-webhook";
+        console.log("Contacting secure Supabase Edge Function CORS proxy for checkout link...");
+        
+        const tokenAnon = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+        const edgeRes = await originalFetch(edgeWebhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": tokenAnon,
+            "Authorization": `Bearer ${tokenAnon}`
+          },
+          body: JSON.stringify({
+            action: "checkout",
+            amount: 10000,
+            clientName: userName,
+            reference: paymentId,
+            description: "Abonnement Premium FootStream (MVOLA/Airtel/Orange/BRED)",
+            successUrl: `${appOrigin}/?status=success&payment_id=${paymentId}`,
+            failureUrl: `${appOrigin}/?status=failed&payment_id=${paymentId}`,
+            provider: provider,
+            payerEmail: userEmail,
+            payerPhone: userPhone
+          })
+        });
+
+        if (edgeRes.ok) {
+          const edgeJson = await edgeRes.json();
+          checkoutUrl = edgeJson?.data?.paymentLink;
+          if (!checkoutUrl) {
+            throw new Error("L'Edge fonction Supabase n'a pas retourné de lien de redirection valide.");
+          }
+        } else {
+          const errJson = await edgeRes.json().catch(() => ({}));
+          const errMsg = errJson?.error || errJson?.message || `Erreur Proxy (Code ${edgeRes.status})`;
+          return makeResponse(edgeRes.status, { error: errMsg });
+        }
+      } catch (err: any) {
+        console.error("Critical error while communicating with Supabase Edge Function proxy:", err);
+        return makeResponse(500, { error: `La liaison sécurisée avec l'Edge fonction Supabase a échoué : ${err.message || err}` });
+      }
       
       return makeResponse(200, {
         checkoutUrl,
-        paymentId,
-        simulated: true
+        paymentId
       });
     } else {
       const db = getLocalDB();
       const user = db.users.find(u => u.id === rawToken);
       if (!user) return makeResponse(401, { error: "Utilisateur introuvable." });
+
+      const userEmail = user.email || "anon@stream.mg";
+      const userName = user.name || "Client FootStream";
+      const userPhone = user.phone || "+261340000000";
+
+      // Request actual external redirect URL from secure Supabase Edge Function (Local fallback mode)
+      let checkoutUrl = "";
+      try {
+        const edgeWebhookUrl = "https://egfpginsadncgkxrvmdu.supabase.co/functions/v1/papi-webhook";
+        console.log("Contacting secure Supabase Edge Function CORS proxy for local checkout link...");
+        
+        const tokenAnon = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+        const edgeRes = await originalFetch(edgeWebhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": tokenAnon,
+            "Authorization": `Bearer ${tokenAnon}`
+          },
+          body: JSON.stringify({
+            action: "checkout",
+            amount: 10000,
+            clientName: userName,
+            reference: paymentId,
+            description: "Abonnement Premium FootStream (MVOLA/Airtel/Orange/BRED)",
+            successUrl: `${appOrigin}/?status=success&payment_id=${paymentId}`,
+            failureUrl: `${appOrigin}/?status=failed&payment_id=${paymentId}`,
+            provider: provider,
+            payerEmail: userEmail,
+            payerPhone: userPhone
+          })
+        });
+
+        if (edgeRes.ok) {
+          const edgeJson = await edgeRes.json();
+          checkoutUrl = edgeJson?.data?.paymentLink;
+          if (!checkoutUrl) {
+            throw new Error("L'Edge fonction Supabase n'a pas retourné de lien de redirection valide.");
+          }
+        } else {
+          const errJson = await edgeRes.json().catch(() => ({}));
+          const errMsg = errJson?.error || errJson?.message || `Erreur Proxy (Code ${edgeRes.status})`;
+          return makeResponse(edgeRes.status, { error: errMsg });
+        }
+      } catch (err: any) {
+        console.error("Critical error while communicating with Supabase Edge Function proxy (Local DB):", err);
+        return makeResponse(500, { error: `La liaison sécurisée avec l'Edge fonction Supabase a échoué : ${err.message || err}` });
+      }
 
       const newPayment: Payment = {
         id: paymentId,
@@ -388,13 +534,9 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
       db.payments.push(newPayment);
       saveLocalDB(db);
 
-      const appOrigin = body?.origin || window.location.origin;
-      const checkoutUrl = `${appOrigin}/payment/simulate/${paymentId}`;
-
       return makeResponse(200, {
         checkoutUrl,
-        paymentId,
-        simulated: true
+        paymentId
       });
     }
   }
@@ -441,20 +583,28 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
   // 13. POST /api/payments/webhook
   // --------------------------------------------------------
   if (url === "/api/payments/webhook" && method === "POST") {
-    const pId = body?.externalId;
-    const isSuccess = body?.status === "success" || body?.status === "SUCCESS";
+    // Correct Papi.mg webhook payload field names support
+    const pId = body?.paymentReference || body?.merchantPaymentReference || body?.externalId || body?.id;
+    const isSuccess = body?.paymentStatus === "SUCCESS" || body?.paymentStatus === "success" || body?.status === "success" || body?.status === "SUCCESS";
     
     if (supabase) {
-      // 1. Update Payment
-      const { data: payment, error: fetchErr } = await supabase.from("payments").select("*").eq("id", pId).single();
+      // 1. Update Payment status
+      let { data: payment, error: fetchErr } = await supabase.from("payments").select("*").eq("id", pId).single();
       if (fetchErr || !payment) {
-        console.error("Webhook update failed: Payment not found", pId);
+        // Fallback finder by papi_reference
+        const { data: altPay } = await supabase.from("payments").select("*").eq("papi_reference", pId).limit(1);
+        payment = altPay && altPay[0] ? altPay[0] : null;
+      }
+
+      if (!payment) {
+        console.error("Webhook update failed: Payment not found for reference", pId);
         return makeResponse(404, { error: "Paiement introuvable." });
       }
 
+      const exactPaymentId = payment.id;
       const { error: updateErr } = await supabase.from("payments").update({
         status: isSuccess ? "success" : "failed"
-      }).eq("id", pId);
+      }).eq("id", exactPaymentId);
 
       if (updateErr) {
         console.error("Error updating payment status in Supabase:", updateErr);
@@ -475,7 +625,7 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
       return makeResponse(200, { success: true });
     } else {
       const db = getLocalDB();
-      const pIdx = db.payments.findIndex(p => p.id === pId);
+      const pIdx = db.payments.findIndex(p => p.id === pId || p.papiReference === pId);
       if (pIdx === -1) return makeResponse(404, { error: "Paiement introuvable." });
 
       db.payments[pIdx].status = isSuccess ? "success" : "failed";
@@ -537,7 +687,27 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
       const { data: users } = await supabase.from("profiles").select("*");
       const { data: matches } = await supabase.from("matches").select("*");
       const { data: payments } = await supabase.from("payments").select("*");
-      return makeResponse(200, { users: users || [], matches: matches || [], payments: payments || [] });
+      
+      const mappedUsers = (users || []).map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        phone: u.phone,
+        isPremium: u.is_premium
+      }));
+      
+      const mappedMatches = (matches || []).map(mapMatchFromDb);
+      
+      const mappedPayments = (payments || []).map((p: any) => ({
+        id: p.id,
+        userId: p.user_id,
+        amount: Number(p.amount),
+        status: p.status,
+        papiReference: p.papi_reference,
+        createdAt: p.created_at
+      }));
+
+      return makeResponse(200, { users: mappedUsers, matches: mappedMatches, payments: mappedPayments });
     } else {
       const db = getLocalDB();
       return makeResponse(200, db);
@@ -553,6 +723,23 @@ const customFetch = async function (input: RequestInfo | URL, init?: RequestInit
 
   if (url === "/api/admin/database/reset" && method === "POST") {
     if (supabase) {
+      try {
+        // First, guarantee the authenticated admin has a profile so RLS does not block insertions/seeding!
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const isPremiumUser = user.email?.toLowerCase() === "admin@exemple.com";
+          await supabase.from("profiles").upsert({
+            id: user.id,
+            email: user.email?.toLowerCase() || "",
+            name: user.user_metadata?.name || "Directeur de FootStream",
+            phone: user.user_metadata?.phone || "",
+            is_premium: isPremiumUser
+          });
+        }
+      } catch (errProfile) {
+        console.warn("Could not insert admin profile on reset:", errProfile);
+      }
+
       // Clear data inside matches table and reinsert INITIAL_MATCHES
       await supabase.from("matches").delete().neq("id", "00000000-0000-0000-0000-000000000000");
       for (const m of INITIAL_MATCHES) {
