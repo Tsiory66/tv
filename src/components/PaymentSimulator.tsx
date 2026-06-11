@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { mockFetch as fetch } from "../dbMock";
 import { Check, Shield, AlertCircle, Smartphone, HelpCircle, Loader } from "lucide-react";
 
 interface PaymentSimulatorProps {
