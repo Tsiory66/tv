@@ -6,7 +6,6 @@ import VideoPlayer from "./components/VideoPlayer";
 import AdminPanel from "./components/AdminPanel";
 import PaymentSimulator from "./components/PaymentSimulator";
 import { Match, User } from "./types";
-import { mockFetch as fetch } from "./dbMock";
 import { 
   Tv, 
   User as UserIcon, 

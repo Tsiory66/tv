@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { Match, MatchStatus } from "../types";
-import { mockFetch as fetch } from "../dbMock";
 import { Plus, Edit2, Trash2, ShieldAlert, Check, RefreshCw, PlusCircle, ArrowLeft, HelpCircle } from "lucide-react";
 
 interface AdminPanelProps {
